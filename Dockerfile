@@ -66,6 +66,7 @@ COPY worker/package.json worker/package.json
 COPY shared/package.json shared/package.json
 COPY toolkit/package.json toolkit/package.json
 COPY extension/package.json extension/package.json
+COPY intelligence-lite/package.json intelligence-lite/package.json
 RUN bun install --frozen-lockfile
 
 # The lockfile travels with the manifest, because `--frozen-lockfile` with no lockfile in the context
@@ -79,13 +80,14 @@ RUN cd agent-computer && bun install --frozen-lockfile
 # A second tree with the build-time dependencies left out, for the runtime stage to take. Vite,
 # biome and the test tooling are a gigabyte that nothing in a running container imports.
 RUN mkdir -p /prod && cp package.json bun.lock /prod/ \
-  && cd /prod && mkdir -p app server worker shared toolkit extension \
+  && cd /prod && mkdir -p app server worker shared toolkit extension intelligence-lite \
   && cp /src/app/package.json app/package.json \
   && cp /src/server/package.json server/package.json \
   && cp /src/worker/package.json worker/package.json \
   && cp /src/shared/package.json shared/package.json \
   && cp /src/toolkit/package.json toolkit/package.json \
   && cp /src/extension/package.json extension/package.json \
+  && cp /src/intelligence-lite/package.json intelligence-lite/package.json \
   && bun install --frozen-lockfile --production
 
 

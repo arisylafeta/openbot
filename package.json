@@ -10,7 +10,8 @@
     "worker",
     "shared",
     "toolkit",
-    "extension"
+    "extension",
+    "intelligence-lite"
   ],
   "scripts": {
     "build": "bun run generate:app-config && bun run --filter '*' build",

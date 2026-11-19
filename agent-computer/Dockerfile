@@ -20,6 +20,7 @@ COPY worker/package.json worker/package.json
 COPY shared/package.json shared/package.json
 COPY toolkit/package.json toolkit/package.json
 COPY extension/package.json extension/package.json
+COPY intelligence-lite/package.json intelligence-lite/package.json
 RUN bun install --frozen-lockfile
 COPY app/src app/src
 COPY shared shared

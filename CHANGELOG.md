@@ -8,6 +8,10 @@ Newest first. `Unreleased` is what is on `main` and not yet tagged.
 
 ## Unreleased
 
+### Self-hosted Intelligence
+
+- **A deployment with no Intelligence URL of its own uses `intelligence-lite`.** Compose starts it beside Postgres, and the server container is pointed at `http://intelligence-lite:7100` and `ws://intelligence-lite:7100`. The development key, used only when neither `CPK_INTELLIGENCE_API_KEY` nor `INTELLIGENCE_API_KEY` is set, is `openbot-dev-intelligence-key`. Set a real key before exposing the port. Learning, the inspector, and trajectories answer that they are not enabled. Run one replica: thread locks are in Postgres, and live events reach only the sockets this process holds.
+
 **Before upgrading.** Two migrations run at start, and the database moves from
 `0088_approval_reviewer_guidance` to `0090_routine_goal_linked_by_run`. `0089_goal_ends_when_met`
 adds an `ends_when_met` column to `responsibilities`, false on every existing goal, so existing

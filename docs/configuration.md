@@ -20,9 +20,9 @@ bash scripts/start.sh
 | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                | PostgreSQL connection string.                                                                         |
 | `KEY_ENCRYPTION_KEY`          | Base64-encoded 32-byte key for encrypted stored credentials. Generate with `openssl rand -base64 32`. |
-| `INTELLIGENCE_API_URL`        | CopilotKit Intelligence API URL.                                                                      |
-| `INTELLIGENCE_GATEWAY_WS_URL` | CopilotKit Intelligence realtime gateway URL.                                                         |
-| `CPK_INTELLIGENCE_API_KEY` | Runtime key written by the CopilotKit CLI. Preferred when non-empty. |
+| `INTELLIGENCE_API_URL`        | Intelligence API URL. This fork's Compose default is `intelligence-lite` on the data network; a host process uses `http://127.0.0.1:7100`. |
+| `INTELLIGENCE_GATEWAY_WS_URL` | Intelligence realtime gateway URL. Phoenix appends `/runner` and `/client`. The host default is `ws://127.0.0.1:7100`. |
+| `CPK_INTELLIGENCE_API_KEY` | Bearer key shared with Intelligence. Preferred when non-empty. Compose's development default is `openbot-dev-intelligence-key`. |
 | `INTELLIGENCE_API_KEY` | Legacy runtime key; used when `CPK_INTELLIGENCE_API_KEY` is empty or absent. |
 
 All five above stop server startup if missing. The three `INTELLIGENCE_` values are additionally

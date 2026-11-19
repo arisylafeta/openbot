@@ -526,7 +526,7 @@ describe("start.sh one computer each", () => {
       stderr: "",
     });
     expect(result.dockerLog).toContain(
-      "compose up -d --build postgres agent-computer agent-bot agent-langgraph",
+      "compose up -d --build postgres intelligence-lite agent-computer agent-bot agent-langgraph",
     );
     expect(result.dockerLog).not.toContain("supervisor");
   });
@@ -547,7 +547,7 @@ describe("start.sh one computer each", () => {
 
       expect(result.exitCode).toBe(0);
       expect(result.dockerLog).toContain(
-        "compose up -d --build postgres supervisor agent-computer agent-bot agent-langgraph",
+        "compose up -d --build postgres intelligence-lite supervisor agent-computer agent-bot agent-langgraph",
       );
     }
   });
@@ -615,7 +615,7 @@ describe("start.sh selected provider services", () => {
         stderr: "",
       });
       expect(result.dockerLog).toContain(
-        "compose up -d --build postgres supervisor agent-computer agent-langgraph",
+        "compose up -d --build postgres intelligence-lite supervisor agent-computer agent-langgraph",
       );
       expect(result.dockerLog).not.toContain("agent-bot");
       expect(result.dockerLog).toContain("compose run --rm --build migrate");
@@ -636,7 +636,7 @@ describe("start.sh selected provider services", () => {
     const result = await runStartWithStaleServerProbe(401);
     expect(result.exitCode).toBe(0);
     expect(result.dockerLog).toContain(
-      "compose up -d --build postgres supervisor agent-computer agent-bot agent-langgraph",
+      "compose up -d --build postgres intelligence-lite supervisor agent-computer agent-bot agent-langgraph",
     );
     expect(result.curlLog).toContain("http://localhost:4200/health");
     expect(result.stdout).toContain("agent-bot ready");

@@ -43,6 +43,40 @@ services:
     networks:
       - data
 
+  # The self-hosted Intelligence stand-in. OpenBot's server talks to it over the
+  # data network; a host process uses the published loopback port. One replica:
+  # websocket subscribers are in this process, locks are in Postgres.
+  intelligence-lite:
+    build:
+      context: .
+      dockerfile: intelligence-lite/Dockerfile
+    image: ${INTELLIGENCE_LITE_IMAGE:-openbot-intelligence-lite:latest}
+    environment:
+      DATABASE_URL: postgres://openbot:openbot@postgres:5432/openbot
+      CPK_INTELLIGENCE_API_KEY: ${CPK_INTELLIGENCE_API_KEY:-}
+      INTELLIGENCE_API_KEY: ${INTELLIGENCE_API_KEY:-${CPK_INTELLIGENCE_API_KEY:-openbot-dev-intelligence-key}}
+      PORT: "7100"
+    ports:
+      - "127.0.0.1:${INTELLIGENCE_PORT:-7100}:7100"
+      - "[::1]:${INTELLIGENCE_PORT:-7100}:7100"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r = await fetch('http://127.0.0.1:7100/healthz'); process.exit(r.ok ? 0 : 1)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - data
+
   migrate:
     build: &server-build
       context: .
@@ -140,8 +174,8 @@ services:
       # already right. The picked harness's path, a model endpoint on the host, and Intelligence.
       PICKED_HARNESS_URL: ${PICKED_HARNESS_CONTAINER_URL:-${PICKED_HARNESS_URL:-}}
       OPENAI_BASE_URL: ${OPENAI_CONTAINER_BASE_URL:-${OPENAI_BASE_URL:-}}
-      INTELLIGENCE_API_URL: ${INTELLIGENCE_CONTAINER_API_URL:-${INTELLIGENCE_API_URL:-}}
-      INTELLIGENCE_GATEWAY_WS_URL: ${INTELLIGENCE_CONTAINER_GATEWAY_WS_URL:-${INTELLIGENCE_GATEWAY_WS_URL:-}}
+      INTELLIGENCE_API_URL: ${INTELLIGENCE_CONTAINER_API_URL:-${INTELLIGENCE_API_URL:-http://intelligence-lite:7100}}
+      INTELLIGENCE_GATEWAY_WS_URL: ${INTELLIGENCE_CONTAINER_GATEWAY_WS_URL:-${INTELLIGENCE_GATEWAY_WS_URL:-ws://intelligence-lite:7100}}
       # The browser opens the gateway too, at the address the server gives it in `/info`, and the
       # browser is on the host. So it gets the deployment's own address, the one a host server would
       # have used, whatever this container uses itself.
@@ -166,7 +200,8 @@ services:
       MANAGED_AGENT_TOKEN: ${MANAGED_AGENT_TOKEN:-}
       SUPERVISOR_TOKEN: ${SUPERVISOR_TOKEN:-openbot-dev-supervisor-token}
       WORKER_SHARED_SECRET: ${WORKER_SHARED_SECRET:-openbot-dev-worker-secret}
-      INTELLIGENCE_API_KEY: ${INTELLIGENCE_API_KEY:-}
+      CPK_INTELLIGENCE_API_KEY: ${CPK_INTELLIGENCE_API_KEY:-}
+      INTELLIGENCE_API_KEY: ${INTELLIGENCE_API_KEY:-${CPK_INTELLIGENCE_API_KEY:-openbot-dev-intelligence-key}}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
@@ -221,6 +256,8 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      intelligence-lite:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "bun -e \"const r = await fetch('http://127.0.0.1:3001/health'); process.exit(r.ok ? 0 : 1)\""]

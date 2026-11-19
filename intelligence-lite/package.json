@@ -1,0 +1,22 @@
+{
+  "name": "intelligence-lite",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "postgres": "^3.4.9",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@copilotkit/runtime": "1.85.0",
+    "@copilotkit/shared": "1.85.0",
+    "@types/node": "^22.19.0",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.3"
+  }
+}

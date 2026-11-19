@@ -223,3 +223,175 @@ test("refuses ingestion when the run does not hold the lock", async () => {
   ]);
   runner.close();
 });
+
+test("stores a message snapshot and refuses fresh events after the lock is released", async () => {
+  const headers = auth(lite.apiKey);
+  const created = await fetch(`${lite.url}/api/threads`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      threadId: "thread-snapshot",
+      userId: "person",
+      agentId: "general-assistant",
+    }),
+  });
+  expect(created.status).toBe(200);
+  const locked = await fetch(`${lite.url}/api/threads/thread-snapshot/lock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      runId: "run-snapshot",
+      userId: "person",
+      agentId: "general-assistant",
+      ttlSeconds: 30,
+    }),
+  });
+  expect(locked.status).toBe(200);
+
+  const runner = await connect(`${lite.wsUrl}/runner/websocket?vsn=2.0.0`, [
+    "phoenix",
+    phoenixToken(lite.apiKey),
+  ]);
+  const joined = nextFrame(runner);
+  runner.send(
+    JSON.stringify([
+      "1",
+      "1",
+      "ingestion:run-snapshot",
+      "phx_join",
+      { thread_id: "thread-snapshot", run_id: "run-snapshot" },
+    ]),
+  );
+  expect((await joined)[4]).toMatchObject({ status: "ok" });
+
+  const push = async (events: unknown[]) => {
+    const reply = nextFrame(runner);
+    runner.send(
+      JSON.stringify([
+        "1",
+        "2",
+        "ingestion:run-snapshot",
+        "events",
+        { events },
+      ]),
+    );
+    return reply;
+  };
+
+  expect(
+    (
+      await push([
+        {
+          type: "TEXT_MESSAGE_CONTENT",
+          messageId: "m-old",
+          delta: "stale",
+          metadata: { cpki_event_id: "evt-old", cpki_event_seq: 1 },
+        },
+      ])
+    )[4],
+  ).toMatchObject({ status: "ok" });
+
+  const snapshot = {
+    type: "MESSAGES_SNAPSHOT",
+    messages: [
+      { id: "ask", role: "user", content: "Say hello." },
+      {
+        id: "reply",
+        role: "assistant",
+        content: "From the endpoint.",
+        toolCalls: [
+          {
+            id: "call-1",
+            type: "function",
+            function: { name: "lookup", arguments: '{"q":"hi"}' },
+          },
+        ],
+      },
+    ],
+    metadata: { cpki_event_id: "evt-snapshot", cpki_event_seq: 2 },
+  };
+  expect((await push([snapshot]))[4]).toMatchObject({ status: "ok" });
+
+  const read = async () => {
+    const response = await fetch(
+      `${lite.url}/api/threads/thread-snapshot/messages?userId=person`,
+      { headers },
+    );
+    expect(response.status).toBe(200);
+    return (await response.json()) as {
+      messages: {
+        id: string;
+        role: string;
+        content: unknown;
+        toolCalls?: unknown;
+      }[];
+    };
+  };
+  const first = await read();
+  expect(first.messages.map((message) => message.id)).toEqual(["ask", "reply"]);
+  expect(first.messages[1]).toMatchObject({
+    content: "From the endpoint.",
+    toolCalls: [{ id: "call-1", name: "lookup", args: '{"q":"hi"}' }],
+  });
+
+  expect(
+    (
+      await push([
+        {
+          ...snapshot,
+          messages: [
+            { id: "ask", role: "user", content: "Say hello." },
+            { id: "reply", role: "assistant", content: "Corrected." },
+          ],
+          metadata: { cpki_event_id: "evt-snapshot-2", cpki_event_seq: 3 },
+        },
+      ])
+    )[4],
+  ).toMatchObject({ status: "ok" });
+  expect((await read()).messages).toEqual([
+    { id: "ask", role: "user", content: "Say hello." },
+    { id: "reply", role: "assistant", content: "Corrected." },
+  ]);
+
+  const released = await fetch(`${lite.url}/api/threads/thread-snapshot/lock`, {
+    method: "DELETE",
+    headers,
+    body: JSON.stringify({ runId: "run-snapshot" }),
+  });
+  expect(released.status).toBe(204);
+
+  expect(
+    (
+      await push([
+        {
+          type: "TEXT_MESSAGE_CONTENT",
+          messageId: "m-late",
+          delta: "too late",
+          metadata: { cpki_event_id: "evt-late", cpki_event_seq: 4 },
+        },
+      ])
+    )[4],
+  ).toMatchObject({
+    status: "error",
+    response: { reason: "active_lock_mismatch", retryable: false },
+  });
+  expect(
+    (
+      await push([
+        {
+          ...snapshot,
+          metadata: { cpki_event_id: "evt-snapshot-2", cpki_event_seq: 3 },
+        },
+      ])
+    )[4],
+  ).toMatchObject({ status: "ok" });
+  expect((await read()).messages.map((message) => message.id)).toEqual([
+    "ask",
+    "reply",
+  ]);
+  expect(
+    (await read()).messages.some((message) => message.id === "m-late"),
+  ).toBe(false);
+
+  runner.close();
+});

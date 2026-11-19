@@ -62,7 +62,12 @@ the browser runs on the host; `.env.example` does this.
 - `POST /connect`, `GET /join-code`, and `POST /api/threads/subscribe` mint a
   single-use `joinToken`.
 - Messages projected from stored AG-UI events (`GET .../messages`, including
-  `fields=id`, which the client reads from `messages[].id`).
+  `fields=id`, which the client reads from `messages[].id`). A
+  `MESSAGES_SNAPSHOT` replaces that transcript, which is how a remote agent
+  such as ag-ui-langgraph reports its final messages.
+- A runner event is stored only while that run still holds the lock. The check
+  and the insert are one transaction. A batch whose events were already stored
+  is still acknowledged, so a retry after the lock is released can finish.
 - Memories: list, create (exact-text duplicate returns `absorbed: true`),
   update (retires the old row), delete, recall, subscribe.
 - `PUT` and `GET /api/channels/files/:id`. The MIT client only defines the GET.

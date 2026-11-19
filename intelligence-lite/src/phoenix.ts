@@ -201,11 +201,19 @@ export function createPhoenix(store: Store): PhoenixSockets {
     }
     let stored: Record<string, unknown>[];
     try {
-      stored = await store.appendEvents(
+      const appended = await store.appendEvents(
         channel.threadId,
         channel.runId,
         events,
       );
+      if (!appended.ok) {
+        reply(conn.ws, asRef(joinRef), asRef(ref), topic, "error", {
+          reason: "active_lock_mismatch",
+          retryable: false,
+        });
+        return;
+      }
+      stored = appended.stored;
     } catch {
       reply(conn.ws, asRef(joinRef), asRef(ref), topic, "error", {
         reason: "storage_unavailable",

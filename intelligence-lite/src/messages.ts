@@ -37,6 +37,23 @@ function toolCallsOf(
   return calls.length > 0 ? calls : null;
 }
 
+function messageFromRaw(
+  raw: Record<string, unknown>,
+  position: number,
+): StoredMessage | null {
+  if (typeof raw.id !== "string" || raw.id === "") return null;
+  return {
+    id: raw.id,
+    role: typeof raw.role === "string" ? raw.role : "assistant",
+    content: raw.content ?? "",
+    activityType:
+      typeof raw.activityType === "string" ? raw.activityType : null,
+    toolCalls: toolCallsOf(raw.toolCalls),
+    toolCallId: typeof raw.toolCallId === "string" ? raw.toolCallId : null,
+    position,
+  };
+}
+
 /**
  * Fold AG-UI events into the thread transcript the runtime reads back.
  *
@@ -45,11 +62,17 @@ function toolCallsOf(
  * A message id that is already stored is left where it is, so a later run that
  * resends history does not duplicate it. That is what lets the runtime's
  * `fields=id` read skip messages it has already persisted.
+ *
+ * `MESSAGES_SNAPSHOT` is the endpoint's account of the whole thread (remote
+ * agents such as ag-ui-langgraph finish a run with one). It replaces the
+ * transcript: new messages are inserted, corrections overwrite the stored row,
+ * and ids the snapshot no longer contains are dropped. `replace` says so.
  */
 export function projectMessages(
   existing: StoredMessage[],
   events: Record<string, unknown>[],
-): StoredMessage[] {
+): { messages: StoredMessage[]; replace: boolean } {
+  let replace = false;
   const byId = new Map<string, StoredMessage>(
     existing.map((message) => [
       message.id,
@@ -82,6 +105,22 @@ export function projectMessages(
 
   for (const event of events) {
     const type = event.type;
+    if (type === "MESSAGES_SNAPSHOT" && Array.isArray(event.messages)) {
+      replace = true;
+      const next = new Map<string, StoredMessage>();
+      let snapshotPosition = 0;
+      for (const raw of event.messages) {
+        if (!isRecord(raw)) continue;
+        const message = messageFromRaw(raw, snapshotPosition);
+        if (!message) continue;
+        snapshotPosition += 1;
+        next.set(message.id, message);
+      }
+      byId.clear();
+      for (const [id, message] of next) byId.set(id, message);
+      position = snapshotPosition;
+      continue;
+    }
     if (type === "RUN_STARTED" && isRecord(event.input)) {
       const messages = event.input.messages;
       if (!Array.isArray(messages)) continue;
@@ -175,9 +214,12 @@ export function projectMessages(
     }
   }
 
-  return [...byId.values()].sort(
-    (left, right) => left.position - right.position,
-  );
+  return {
+    messages: [...byId.values()].sort(
+      (left, right) => left.position - right.position,
+    ),
+    replace,
+  };
 }
 
 export function isRecordEvent(

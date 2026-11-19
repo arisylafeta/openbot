@@ -707,16 +707,36 @@ export class Store {
   /**
    * Persist runner events in order. Duplicates of `metadata.cpki_event_id` are
    * acknowledged and not returned, so a retried batch is not broadcast again.
+   *
+   * A fresh event is written only while this run still holds the lock. The
+   * check and the insert share one transaction, and the thread row is locked
+   * in the same order as `acquireLock`, so a replacement run cannot start
+   * between them. A batch whose every event is already stored is still `ok`:
+   * the runner retries until the gateway acknowledges, including after the
+   * lock has been released.
    */
   async appendEvents(
     threadId: string,
     runId: string,
     events: unknown[],
-  ): Promise<Record<string, unknown>[]> {
+  ): Promise<
+    | { ok: true; stored: Record<string, unknown>[] }
+    | { ok: false; reason: "lock_lost" }
+  > {
     return this.tx(async (tx) => {
-      const fresh: Record<string, unknown>[] = [];
-      for (const event of events) {
-        if (!isRecordEvent(event)) continue;
+      await tx`SELECT id FROM threads WHERE id = ${threadId} FOR UPDATE`;
+      const locks = await tx<LockRow[]>`
+        SELECT * FROM locks WHERE thread_id = ${threadId} FOR UPDATE
+      `;
+      const lock = locks[0];
+      const held =
+        !!lock &&
+        lock.run_id === runId &&
+        !lock.completed &&
+        lock.expires_at.getTime() > Date.now();
+
+      const prepared = events.flatMap((event) => {
+        if (!isRecordEvent(event)) return [];
         const metadata = isRecordEvent(event.metadata) ? event.metadata : {};
         const eventId =
           typeof metadata.cpki_event_id === "string"
@@ -727,15 +747,33 @@ export class Store {
             ? metadata.cpki_event_seq
             : 0;
         const type = typeof event.type === "string" ? event.type : "UNKNOWN";
+        return [{ event, eventId, seq, type }];
+      });
+      const ids = prepared.map((item) => item.eventId);
+      const existing =
+        ids.length === 0
+          ? []
+          : await tx<{ event_id: string }[]>`
+              SELECT event_id FROM events
+              WHERE thread_id = ${threadId} AND event_id IN ${tx(ids)}
+            `;
+      const have = new Set(existing.map((row) => row.event_id));
+      const novel = prepared.filter((item) => !have.has(item.eventId));
+      if (novel.length > 0 && !held) {
+        return { ok: false as const, reason: "lock_lost" as const };
+      }
+
+      const fresh: Record<string, unknown>[] = [];
+      for (const item of novel) {
         const inserted = await tx<{ payload: Record<string, unknown> }[]>`
           INSERT INTO events (thread_id, run_id, event_id, seq, type, payload)
           VALUES (
             ${threadId},
             ${runId},
-            ${eventId},
-            ${seq},
-            ${type},
-            ${tx.json(event as postgres.JSONValue)}
+            ${item.eventId},
+            ${item.seq},
+            ${item.type},
+            ${tx.json(item.event as postgres.JSONValue)}
           )
           ON CONFLICT (thread_id, event_id) DO NOTHING
           RETURNING payload
@@ -751,7 +789,7 @@ export class Store {
           ORDER BY position ASC
         `;
         const projected = projectMessages(current, fresh);
-        for (const message of projected) {
+        for (const message of projected.messages) {
           await tx`
             INSERT INTO messages (
               thread_id, id, role, content, activity_type, tool_calls, tool_call_id, position
@@ -771,8 +809,20 @@ export class Store {
                 content = EXCLUDED.content,
                 activity_type = EXCLUDED.activity_type,
                 tool_calls = EXCLUDED.tool_calls,
-                tool_call_id = EXCLUDED.tool_call_id
+                tool_call_id = EXCLUDED.tool_call_id,
+                position = EXCLUDED.position
           `;
+        }
+        if (projected.replace) {
+          const ids = projected.messages.map((message) => message.id);
+          if (ids.length === 0) {
+            await tx`DELETE FROM messages WHERE thread_id = ${threadId}`;
+          } else {
+            await tx`
+              DELETE FROM messages
+              WHERE thread_id = ${threadId} AND id NOT IN ${tx(ids)}
+            `;
+          }
         }
         if (fresh.some(terminalType)) {
           await tx`
@@ -784,7 +834,7 @@ export class Store {
           UPDATE threads SET updated_at = now(), last_run_at = now() WHERE id = ${threadId}
         `;
       }
-      return fresh;
+      return { ok: true as const, stored: fresh };
     });
   }
 
